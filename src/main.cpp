@@ -1,5 +1,6 @@
-#include <SFML/Graphics.hpp>
 #include <iostream>
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 class Person
 {
@@ -12,69 +13,57 @@ public:
 
   void notVeryRandomNewDir()
   {
-    // std::cout << "new dir " << dir_ << " ";
-    dir_ = (move_count_ / 7 + dir_ + 1) % 5;
-    // std::cout << dir_ << "\n";
+    x_move_max_ = rand() % 20 - 10;
+    y_move_max_ = rand() % 20 - 10;
   }
 
-  void update(sf::Image& map)
+  void update(cv::Mat& map)
   {
     ++tick_count_;
     if (tick_count_ % ticks_to_move_ != 0) {
       return;
     }
-    sf::Color color = map.getPixel(x_, y_);
     // TODO(lucasw) handle swimming
 
-    // auto n =
-    if (dir_ == 0) {
-      // stand still
-    } else if (dir_ == 1) {
-      if (x_ < map.getSize().x - 1) {
-        sf::Color color = map.getPixel(x_ + 1, y_);
-        if (color.r > 0) {
-          x_ += 1;
+    ++x_move_count_;
+    ++y_move_count_;
+    size_t nx = x_, ny = y_;
+    if (y_move_count_ > std::abs(y_move_max_)) {
+      y_move_count_ = 0;
+      if (y_move_max_ > 0) {
+        ++ny;
+      } else if (y_move_max_ < 0) {
+        --ny;
+      }
+      if (ny < map.rows) {
+        const auto val = map.at<uint8_t>(ny, x_);
+        if (val > 0) {
+          y_ = ny;
         } else {
           notVeryRandomNewDir();
         }
       } else {
         notVeryRandomNewDir();
       }
-    } else if (dir_ == 3) {
-      if (x_ > 0) {
-        sf::Color color = map.getPixel(x_ - 1, y_);
-        if (color.r > 0) {
-          x_ -= 1;
+    }
+    if (x_move_count_ > std::abs(x_move_max_)) {
+      x_move_count_ = 0;
+      if (x_move_max_ > 0) {
+        ++nx;
+      } else if (x_move_max_ < 0) {
+        --nx;
+      }
+
+      if (nx < map.cols) {
+        const auto val = map.at<uint8_t>(y_, nx);
+        if (val > 0) {
+          x_ = nx;
         } else {
           notVeryRandomNewDir();
         }
       } else {
         notVeryRandomNewDir();
       }
-    } else if (dir_ == 2) {
-      if (y_ < map.getSize().y - 1) {
-        sf::Color color = map.getPixel(x_, y_ + 1);
-        if (color.r > 0) {
-          y_ += 1;
-        } else {
-          notVeryRandomNewDir();
-        }
-      } else {
-        notVeryRandomNewDir();
-      }
-    } else if (dir_ == 4) {
-      if (y_ > 0) {
-        sf::Color color = map.getPixel(x_, y_ - 1);
-        if (color.r > 0) {
-          y_ -= 1;
-        } else {
-          notVeryRandomNewDir();
-        }
-      } else {
-        notVeryRandomNewDir();
-      }
-    } else {
-      notVeryRandomNewDir();
     }
 
     if (move_count_ % change_dir_max_ == 0) {
@@ -94,17 +83,21 @@ public:
   }
 
   size_t move_count_ = 0;
+  int x_move_count_ = 0;
+  int x_move_max_ = 4;
+  int y_move_count_ = 0;
+  int y_move_max_ = 0;
+
   size_t tick_count_ = 0;
-  size_t ticks_to_move_ = 33;
+  size_t ticks_to_move_ = 3;
   size_t x_;
   size_t y_;
-  size_t dir_ = 1;
 
   size_t change_dir_max_ = 41;
   size_t change_dir_count_ = 0;
 
   size_t spawn_count_ = 0;
-  size_t spawn_max_ = 2713;
+  size_t spawn_max_ = 73;
 };
 
 class Land
@@ -112,14 +105,15 @@ class Land
 public:
   Land(const std::string& path)
   {
-    if (!map_tex_.loadFromFile(path + "map.png")) {
+    cv::Mat map = cv::imread(path + "map.png", cv::IMREAD_GRAYSCALE);
+    if (map.empty()) {
       throw std::runtime_error("couldn't load image from disk " + path);
     }
-    map_image_ = map_tex_.copyToImage();
-    sprite_.setTexture(map_tex_);
 
-    const auto width = map_tex_.getSize().x;
-    const auto height = map_tex_.getSize().y;
+    cv::resize(map, map_, cv::Size(320, 200), cv::INTER_NEAREST);
+
+    const auto width = map_.cols;
+    const auto height = map_.rows;
 
     std::cout << width << " " << height << "\n";
 
@@ -130,9 +124,10 @@ public:
   {
     std::vector<Person> new_people;
     for(auto& person : people_) {
-      person.update(map_image_);
-      if (person.spawn()) {
+      person.update(map_);
+      if ((people_.size() < people_limit_) && person.spawn()) {
         new_people.emplace_back(Person(person.x_, person.y_));
+        new_people[new_people.size() - 1].spawn_max_ += rand() % 23;
       }
     }
 
@@ -143,41 +138,40 @@ public:
 
   }
 
-  void draw(sf::RenderWindow& window)
+  void draw()
   {
-    window.draw(sprite_);
-
-    std::vector<sf::Vertex> vertices;
-    const auto color = sf::Color(255, 10, 10);
+    const auto color = cv::Vec3b(255, 0, 0);
+    cv::cvtColor(map_, image_, cv::COLOR_GRAY2RGB);
     for(auto& person : people_) {
-      vertices.push_back(sf::Vertex(sf::Vector2f(person.x_, person.y_), color));
+      image_.at<cv::Vec3b>(person.y_, person.x_) = color;
     }
-    window.draw(&vertices[0], vertices.size(), sf::Points);
   }
 
   std::vector<Person> people_;
 
-  sf::Image map_image_;
-  sf::Texture map_tex_;
-  sf::Sprite sprite_;
+  cv::Mat image_;
+  cv::Mat map_;
+
+  const size_t people_limit_ = 210000;
 };
 
 int main(int argn, char* argv[])
 {
-  sf::RenderWindow window(sf::VideoMode(1000, 800), "automata");
-
   Land land("../automata_sfml/data/");
 
-  while (window.isOpen()) {
-    sf::Event event;
-    while (window.pollEvent(event)) {
-      if (event.type == sf::Event::Closed)
-        window.close();
-    }
+  cv::Mat image;
+  land.draw();
+  cv::resize(land.image_, image, cv::Size(), 3.0, 3.0, cv::INTER_NEAREST);
+  while (true) {
     land.update();
-    window.clear();
-    land.draw(window);
-    window.display();
+    land.draw();
+    cv::resize(land.image_, image, cv::Size(), 3.0, 3.0, cv::INTER_NEAREST);
+    cv::imshow("automata", image);
+    const int key = cv::waitKey(10);
+    if (key == 'q') {
+      break;
+    }
+    // std::this_thread::sleep_for(10ms);
   }
 
   return 0;

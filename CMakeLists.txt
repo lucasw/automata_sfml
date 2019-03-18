@@ -1,9 +1,8 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(usb_cam)
+project(automata)
 
-# find_package(SFML REQUIRED)
+find_package(OpenCV REQUIRED)
 
 add_executable(automata src/main.cpp)
 # include_directories(${SFML_INCLUDE_DIR})
-# target_link_libraries(automata ${SFML_LIBRARIES} ${SFML_DEPENDENCIES})
-target_link_libraries(automata sfml-graphics sfml-window sfml-system)
+target_link_libraries(automata ${OpenCV_LIBRARIES})
